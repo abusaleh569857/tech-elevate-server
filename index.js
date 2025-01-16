@@ -11,9 +11,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173", // Add your frontend's URL here
-    ],
+    origin: ["http://localhost:5173"],
     credentials: true,
   })
 );
@@ -36,11 +34,22 @@ async function run() {
     console.log("Connected to MongoDB successfully!");
 
     const db = client.db("TechElevate");
-    const userCollection = db.collection("users");
+    const usersCollection = db.collection("users");
+    const productsCollection = db.collection("products");
 
     // Root Route
     app.get("/", (req, res) => {
       res.send("TechElevate Server is Running!");
+    });
+
+    // Get products for a specific user
+    app.get("/products", async (req, res) => {
+      const ownerEmail = req.query.ownerEmail;
+      if (!ownerEmail) {
+        return res.status(400).json({ error: "Owner email is required." });
+      }
+      const products = await productsCollection.find({ ownerEmail }).toArray();
+      res.json(products);
     });
 
     app.post("/users", async (req, res) => {
@@ -65,7 +74,7 @@ async function run() {
         }
 
         // Check if user already exists
-        const existingUser = await userCollection.findOne({ email });
+        const existingUser = await usersCollection.findOne({ email });
 
         if (existingUser) {
           // If the user exists, update their data
@@ -81,7 +90,7 @@ async function run() {
           };
 
           // Perform the update
-          const updateResult = await userCollection.updateOne(
+          const updateResult = await usersCollection.updateOne(
             { email },
             { $set: updatedUser }
           );
@@ -135,6 +144,82 @@ async function run() {
         console.error("Error saving user:", error.message);
         return res.status(500).json({ message: "Internal server error." });
       }
+    });
+
+    // API to Add Product
+    app.post("/add-products", async (req, res) => {
+      const {
+        productName,
+        productImage,
+        description,
+        ownerName,
+        ownerEmail,
+        ownerImage,
+        tags,
+        externalLink,
+      } = req.body;
+
+      // Prepare Product Object
+      const newProduct = {
+        productName,
+        productImage,
+        description,
+        ownerName,
+        ownerEmail,
+        ownerImage,
+        tags: tags || [], // Default to an empty array if tags are not provided
+        externalLink,
+        timestamp: new Date(), // Add Timestamp
+      };
+
+      try {
+        // Insert Product into MongoDB
+        const result = await productsCollection.insertOne(newProduct);
+
+        res.status(201).json({
+          success: true,
+          message: "Product added successfully.",
+          productId: result.insertedId,
+        });
+      } catch (error) {
+        console.error("Error inserting product:", error.message);
+        res.status(500).json({
+          success: false,
+          message: "Failed to add product.",
+        });
+      }
+    });
+
+    // Update an existing product
+    app.put("/products/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedProduct = req.body;
+
+      // Remove the _id field from the update data, if present
+      delete updatedProduct._id;
+
+      const result = await productsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updatedProduct }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ error: "Product not found." });
+      }
+
+      res.json({ message: "Product updated successfully." });
+    });
+
+    // Delete a product
+    app.delete("/products/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await productsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      if (result.deletedCount === 0) {
+        return res.status(404).json({ error: "Product not found." });
+      }
+      res.json({ message: "Product deleted successfully." });
     });
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error.message);
