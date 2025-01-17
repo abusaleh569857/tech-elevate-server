@@ -167,9 +167,9 @@ async function run() {
         ownerName,
         ownerEmail,
         ownerImage,
-        tags: tags || [], // Default to an empty array if tags are not provided
+        tags: tags || [],
         externalLink,
-        timestamp: new Date(), // Add Timestamp
+        timestamp: new Date(),
       };
 
       try {
