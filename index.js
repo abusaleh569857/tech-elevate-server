@@ -64,7 +64,7 @@ async function run() {
       }
     });
 
-    // Get products for a specific user
+    // Get products for a specific user (user dashboard)
     app.get("/products", async (req, res) => {
       const ownerEmail = req.query.ownerEmail;
       if (!ownerEmail) {
@@ -72,6 +72,43 @@ async function run() {
       }
       const products = await productsCollection.find({ ownerEmail }).toArray();
       res.json(products);
+    });
+
+    // Fetch product by ID (moderator dashboard)
+    app.get("/products/:id", async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const product = await productsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!product) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Product not found." });
+        }
+
+        res.status(200).json(product);
+      } catch (error) {
+        console.error("Error fetching product:", error.message);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to fetch product." });
+      }
+    });
+
+    // Fetch all products
+    app.get("/all-products", async (req, res) => {
+      try {
+        const products = await productsCollection.find({}).toArray();
+        res.status(200).json(products);
+      } catch (error) {
+        console.error("Error fetching products:", error.message);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to fetch products." });
+      }
     });
 
     app.post("/users", async (req, res) => {
@@ -181,7 +218,7 @@ async function run() {
         externalLink,
       } = req.body;
 
-      // Prepare Product Object
+      // Prepare Product Object with default values
       const newProduct = {
         productName,
         productImage,
@@ -191,7 +228,13 @@ async function run() {
         ownerImage,
         tags: tags || [],
         externalLink,
-        timestamp: new Date(),
+
+        upvotes: 0,
+        downvotes: 0,
+        reports: 0,
+        status: "pending",
+        isFeatured: false,
+        createdAt: new Date(),
       };
 
       try {
@@ -230,6 +273,40 @@ async function run() {
       }
 
       res.json({ message: "Product updated successfully." });
+    });
+
+    // Update product status or make it featured
+    app.patch("/update-products/:id", async (req, res) => {
+      const { id } = req.params;
+      const { action, isFeatured } = req.body;
+
+      const updateFields = {};
+      if (action === "accept") updateFields.status = "accepted";
+      if (action === "reject") updateFields.status = "rejected";
+      if (isFeatured === true) updateFields.isFeatured = true;
+
+      try {
+        const result = await productsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateFields }
+        );
+        console.log(result);
+
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .json({ success: false, message: "Product not found." });
+        }
+
+        res
+          .status(200)
+          .json({ success: true, message: "Product updated successfully." });
+      } catch (error) {
+        console.error("Error updating product:", error.message);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to update product." });
+      }
     });
 
     // Delete a product
