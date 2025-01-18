@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const app = express();
@@ -30,12 +31,54 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
-    console.log("Connected to MongoDB successfully!");
+    // await client.connect();
+    // console.log("Connected to MongoDB successfully!");
 
     const db = client.db("TechElevate");
     const usersCollection = db.collection("users");
     const productsCollection = db.collection("products");
+    const reviewsCollection = db.collection("reviews");
+
+    // JWT-related API to generate token
+    app.post("/jwt", async (req, res) => {
+      const { email } = req.body;
+      console.log(email);
+      console.log(req.body);
+
+      if (!email) {
+        return res.status(400).send({ message: "Email is required" });
+      }
+
+      try {
+        // Generate a token for the user using their email or any user info
+        const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
+          expiresIn: "1h",
+        });
+        res.send({ token });
+      } catch (error) {
+        console.error("Error generating JWT token:", error);
+        res.status(500).send({ message: "Error generating token" });
+      }
+    });
+
+    // Middleware to verify token
+    const authenticateToken = (req, res, next) => {
+      const token = req.headers.authorization?.split(" ")[1];
+
+      if (!token) {
+        return res.status(401).send({ message: "Unauthorized access" });
+      }
+
+      // Verify the token
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
+        if (err) {
+          return res.status(401).send({ message: "Unauthorized access" });
+        }
+
+        req.user = user;
+        next();
+      });
+    };
 
     // Root Route
     app.get("/", (req, res) => {
@@ -98,7 +141,84 @@ async function run() {
       }
     });
 
-    // Fetch all products
+    // API to get products with search and pagination(products page )
+    app.get("/accepted-products", async (req, res) => {
+      const { search = "", page = 1 } = req.query;
+      const limit = 6;
+      const skip = (page - 1) * limit;
+
+      try {
+        const query = {
+          status: "Accepted",
+          tags: { $regex: search, $options: "i" },
+        };
+        const total = await productsCollection.countDocuments(query);
+        const products = await productsCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.json({ products, totalPages: Math.ceil(total / limit) });
+      } catch (err) {
+        res
+          .status(500)
+          .json({ message: "Error fetching products", error: err });
+      }
+    });
+
+    app.get("/products/:id/reviews", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const reviews = await reviewsCollection
+          .find({ productId: id })
+          .toArray();
+        res.send(reviews);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching reviews", error });
+      }
+    });
+
+    app.post("/products/:id/upvote", authenticateToken, async (req, res) => {
+      const { id } = req.params;
+      console.log(" product id", id);
+
+      try {
+        const product = await productsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        console.log(product);
+        if (!product) {
+          return res.status(404).json({ message: "Product not found" });
+        }
+        console.log(product.ownerEmail);
+        console.log(req.user.email);
+
+        if (product.ownerEmail === req.user.email) {
+          return res
+            .status(403)
+            .json({ message: "You cannot vote on your own product" });
+        }
+
+        if (product.voters?.includes(req.user.email)) {
+          return res.status(400).json({ message: "You can only vote once" });
+        }
+
+        await productsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $inc: { upvotes: 1 }, $push: { voters: req.user.email } }
+        );
+
+        res.json({ message: "Vote recorded" });
+      } catch (err) {
+        res
+          .status(500)
+          .json({ message: "Error voting on product", error: err });
+      }
+    });
+
+    // Fetch all products (moderator dashboard)
     app.get("/all-products", async (req, res) => {
       try {
         const products = await productsCollection.find({}).toArray();
@@ -108,6 +228,19 @@ async function run() {
         res
           .status(500)
           .json({ success: false, message: "Failed to fetch products." });
+      }
+    });
+
+    app.get("/products/:id/reviews", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const reviews = await reviewsCollection
+
+          .find({ productId: id })
+          .toArray();
+        res.send(reviews);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching reviews", error });
       }
     });
 
@@ -232,7 +365,7 @@ async function run() {
         upvotes: 0,
         downvotes: 0,
         reports: 0,
-        status: "pending",
+        status: "Pending",
         isFeatured: false,
         createdAt: new Date(),
       };
@@ -252,6 +385,18 @@ async function run() {
           success: false,
           message: "Failed to add product.",
         });
+      }
+    });
+
+    app.post("/reviews", async (req, res) => {
+      const review = req.body;
+
+      try {
+        const result = await reviewsCollection.insertOne(review);
+        console.log("Insert result:", result);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error submitting review", error });
       }
     });
 
@@ -281,8 +426,8 @@ async function run() {
       const { action, isFeatured } = req.body;
 
       const updateFields = {};
-      if (action === "accept") updateFields.status = "accepted";
-      if (action === "reject") updateFields.status = "rejected";
+      if (action === "Accept") updateFields.status = "Accepted";
+      if (action === "Reject") updateFields.status = "Rejected";
       if (isFeatured === true) updateFields.isFeatured = true;
 
       try {
