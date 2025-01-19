@@ -222,9 +222,7 @@ async function run() {
     });
 
     app.get("/products-featured", async (req, res) => {
-      console.log("api hit for featured products");
       try {
-        // Ensure that products are being fetched from the correct collection with 'Featured' status
         const products = await productsCollection
           .find({ isFeatured: true }) // Query for featured products
           .sort({ createdAt: -1 }) // Sort by creation date (latest first)
@@ -237,7 +235,7 @@ async function run() {
             .send({ message: "No featured products found" });
         }
 
-        res.send(products); // Send the fetched products
+        res.send(products);
       } catch (error) {
         console.error("Error fetching featured products", error);
         res.status(500).send({ message: "Error fetching featured products" });
@@ -245,13 +243,11 @@ async function run() {
     });
 
     app.get("/products-trending", async (req, res) => {
-      console.log("api hit for trending products");
       try {
-        // Query for trending products based on votes and limit to 6
         const products = await productsCollection
           .find() // Fetch all products
           .sort({ votes: -1 }) // Sort by vote count (highest first)
-          .limit(6) // Limit the results to 6 products
+          .limit(8) // Limit the results to 6 products
           .toArray();
 
         if (products.length === 0) {
@@ -299,6 +295,42 @@ async function run() {
         res
           .status(500)
           .json({ message: "Error voting on product", error: err });
+      }
+    });
+
+    // Upvote a Product
+    app.post("/products/upvote/:id", authenticateToken, async (req, res) => {
+      const productId = req.params.id;
+      const userEmail = req.user.email;
+
+      try {
+        // Check if the user already voted for the product
+        const product = await productsCollection.findOne({
+          _id: new ObjectId(productId),
+        });
+
+        if (!product) {
+          return res.status(404).json({ message: "Product not found" });
+        }
+
+        if (product.voters?.includes(userEmail)) {
+          return res
+            .status(400)
+            .send({ message: "You have already voted for this product" });
+        }
+
+        // Update product votes and add user to the voters list
+        await productsCollection.updateOne(
+          { _id: new ObjectId(productId) },
+          {
+            $inc: { upvotes: 1 },
+            $push: { voters: userEmail },
+          }
+        );
+        res.send({ message: "Product upvoted successfully" });
+      } catch (error) {
+        console.error("Error upvoting product", error);
+        res.status(500).send({ message: "Error upvoting product" });
       }
     });
 
