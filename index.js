@@ -107,6 +107,17 @@ async function run() {
       }
     });
 
+    // Fetch All Users (by admin)
+    app.get("/all-users", async (req, res) => {
+      try {
+        const users = await usersCollection.find().toArray();
+        res.json(users);
+      } catch (error) {
+        console.error("Error fetching users:", error);
+        res.status(500).json({ message: "Failed to fetch users." });
+      }
+    });
+
     // Get products for a specific user (user dashboard)
     app.get("/products", async (req, res) => {
       const ownerEmail = req.query.ownerEmail;
@@ -246,7 +257,7 @@ async function run() {
       try {
         const products = await productsCollection
           .find() // Fetch all products
-          .sort({ votes: -1 }) // Sort by vote count (highest first)
+          .sort({ upvotes: -1 }) // Sort by vote count (highest first)
           .limit(8) // Limit the results to 6 products
           .toArray();
 
@@ -548,6 +559,33 @@ async function run() {
       }
 
       res.json({ message: "Product updated successfully." });
+    });
+
+    // Update User Role
+    app.put("/users/:id/role", async (req, res) => {
+      const { id } = req.params;
+      const { role } = req.body;
+
+      if (!role || !["user", "moderator", "admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role provided." });
+      }
+
+      try {
+        const result = await usersCollection.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { $set: { role } },
+          { returnDocument: "after" }
+        );
+
+        if (result.role) {
+          res.json({ role: result.role });
+        } else {
+          res.status(404).json({ message: "User not found." });
+        }
+      } catch (error) {
+        console.error("Error updating user role:", error);
+        res.status(500).json({ message: "Failed to update user role." });
+      }
     });
 
     // Update product status or make it featured
