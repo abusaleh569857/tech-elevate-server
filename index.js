@@ -31,8 +31,8 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // await client.connect();
-    // console.log("Connected to MongoDB successfully!");
+    await client.connect();
+    console.log("Connected to MongoDB successfully!");
 
     const db = client.db("TechElevate");
     const usersCollection = db.collection("users");
@@ -52,7 +52,7 @@ async function run() {
       try {
         // Generate a token for the user using their email or any user info
         const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
-          expiresIn: "1h",
+          expiresIn: "10h",
         });
         res.send({ token });
       } catch (error) {
@@ -206,20 +206,78 @@ async function run() {
       }
     });
 
+    // Fetch reported products
+    app.get("/reported-products", async (req, res) => {
+      try {
+        const reportedProducts = await productsCollection
+          .find({ reports: { $gt: 0 } })
+          .sort({ reports: -1 })
+          .toArray();
+        res.status(200).json(reportedProducts);
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Error fetching reported products", error });
+      }
+    });
+
+    app.get("/products-featured", async (req, res) => {
+      console.log("api hit for featured products");
+      try {
+        // Ensure that products are being fetched from the correct collection with 'Featured' status
+        const products = await productsCollection
+          .find({ isFeatured: true }) // Query for featured products
+          .sort({ createdAt: -1 }) // Sort by creation date (latest first)
+          .limit(4) // Limit the results to 4 products
+          .toArray();
+
+        if (products.length === 0) {
+          return res
+            .status(404)
+            .send({ message: "No featured products found" });
+        }
+
+        res.send(products); // Send the fetched products
+      } catch (error) {
+        console.error("Error fetching featured products", error);
+        res.status(500).send({ message: "Error fetching featured products" });
+      }
+    });
+
+    app.get("/products-trending", async (req, res) => {
+      console.log("api hit for trending products");
+      try {
+        // Query for trending products based on votes and limit to 6
+        const products = await productsCollection
+          .find() // Fetch all products
+          .sort({ votes: -1 }) // Sort by vote count (highest first)
+          .limit(6) // Limit the results to 6 products
+          .toArray();
+
+        if (products.length === 0) {
+          return res
+            .status(404)
+            .send({ message: "No trending products found" });
+        }
+
+        res.send(products); // Send the fetched products
+      } catch (error) {
+        console.error("Error fetching trending products", error);
+        res.status(500).send({ message: "Error fetching trending products" });
+      }
+    });
+
     app.post("/products/:id/upvote", authenticateToken, async (req, res) => {
       const { id } = req.params;
-      console.log(" product id", id);
 
       try {
         const product = await productsCollection.findOne({
           _id: new ObjectId(id),
         });
-        console.log(product);
+
         if (!product) {
           return res.status(404).json({ message: "Product not found" });
         }
-        console.log(product.ownerEmail);
-        console.log(req.user.email);
 
         if (product.ownerEmail === req.user.email) {
           return res
@@ -494,16 +552,43 @@ async function run() {
       }
     });
 
-    // Delete a product
+    //Delete a product
     app.delete("/products/:id", async (req, res) => {
       const id = req.params.id;
+      console.log(id);
       const result = await productsCollection.deleteOne({
         _id: new ObjectId(id),
       });
+      console.log(result);
       if (result.deletedCount === 0) {
         return res.status(404).json({ error: "Product not found." });
       }
       res.json({ message: "Product deleted successfully." });
+    });
+
+    // Delete reported product by moderator
+
+    app.delete("/reported/products/:id", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await productsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        console.log(result);
+        if (result.deletedCount > 0) {
+          res
+            .status(200)
+            .json({ success: true, message: "Product deleted successfully" });
+        } else {
+          res
+            .status(404)
+            .json({ success: false, message: "Product not found" });
+        }
+      } catch (error) {
+        res
+          .status(500)
+          .json({ success: false, message: "Error deleting product", error });
+      }
     });
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error.message);
