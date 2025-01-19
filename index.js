@@ -180,6 +180,32 @@ async function run() {
       }
     });
 
+    // Fetch all products (moderator dashboard)
+    app.get("/all-products", async (req, res) => {
+      try {
+        const products = await productsCollection.find({}).toArray();
+        res.status(200).json(products);
+      } catch (error) {
+        console.error("Error fetching products:", error.message);
+        res
+          .status(500)
+          .json({ success: false, message: "Failed to fetch products." });
+      }
+    });
+
+    app.get("/products/:id/reviews", async (req, res) => {
+      const { id } = req.params;
+      try {
+        const reviews = await reviewsCollection
+
+          .find({ productId: id })
+          .toArray();
+        res.send(reviews);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching reviews", error });
+      }
+    });
+
     app.post("/products/:id/upvote", authenticateToken, async (req, res) => {
       const { id } = req.params;
       console.log(" product id", id);
@@ -218,29 +244,43 @@ async function run() {
       }
     });
 
-    // Fetch all products (moderator dashboard)
-    app.get("/all-products", async (req, res) => {
-      try {
-        const products = await productsCollection.find({}).toArray();
-        res.status(200).json(products);
-      } catch (error) {
-        console.error("Error fetching products:", error.message);
-        res
-          .status(500)
-          .json({ success: false, message: "Failed to fetch products." });
-      }
-    });
-
-    app.get("/products/:id/reviews", async (req, res) => {
+    app.post("/products/:id/report", authenticateToken, async (req, res) => {
       const { id } = req.params;
-      try {
-        const reviews = await reviewsCollection
 
-          .find({ productId: id })
-          .toArray();
-        res.send(reviews);
+      try {
+        const product = await productsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!product)
+          return res.status(404).send({ message: "Product not found" });
+
+        // Prevent owner from reporting their own product
+        if (product.ownerEmail === req.user.email) {
+          return res
+            .status(403)
+            .send({ message: "You cannot report your own product" });
+        }
+
+        // Check if the user has already reported the product
+        if (product.reportedBy?.includes(req.user.email)) {
+          return res
+            .status(400)
+            .send({ message: "You have already reported this product" });
+        }
+
+        // Increment the report count and add the user to the reportedBy list
+        const result = await productsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $inc: { reports: 1 },
+            $push: { reportedBy: req.user.email },
+          }
+        );
+
+        res.send({ message: "Product reported successfully" });
       } catch (error) {
-        res.status(500).send({ message: "Error fetching reviews", error });
+        res.status(500).send({ message: "Error reporting product", error });
       }
     });
 
