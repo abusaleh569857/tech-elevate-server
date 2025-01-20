@@ -38,6 +38,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const productsCollection = db.collection("products");
     const reviewsCollection = db.collection("reviews");
+    const couponsCollection = db.collection("coupons");
 
     // JWT-related API to generate token
     app.post("/jwt", async (req, res) => {
@@ -271,6 +272,52 @@ async function run() {
       } catch (error) {
         console.error("Error fetching trending products", error);
         res.status(500).send({ message: "Error fetching trending products" });
+      }
+    });
+
+    // Fetch all coupons
+    app.get("/coupons", async (req, res) => {
+      const coupons = await couponsCollection.find().toArray();
+      console.log(coupons);
+      res.json(coupons);
+    });
+
+    app.get("/site-statistics", async (req, res) => {
+      try {
+        // Count total products and group by status
+        const productCounts = await productsCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$status",
+                count: { $sum: 1 },
+              },
+            },
+          ])
+          .toArray();
+
+        // Count total reviews
+        const totalReviews = await reviewsCollection.countDocuments();
+
+        // Count total users
+        const totalUsers = await usersCollection.countDocuments();
+
+        // Format data for the frontend
+        const formattedProductCounts = productCounts.map((item) => ({
+          name: item._id || "Unknown",
+          value: item.count,
+        }));
+
+        const siteStatistics = [
+          ...formattedProductCounts,
+          { name: "Reviews", value: totalReviews },
+          { name: "Users", value: totalUsers },
+        ];
+
+        res.json(siteStatistics);
+      } catch (error) {
+        console.error("Error fetching site statistics:", error);
+        res.status(500).json({ error: "Failed to fetch statistics." });
       }
     });
 
@@ -541,6 +588,14 @@ async function run() {
       }
     });
 
+    // Add a new coupon
+    app.post("/coupons", async (req, res) => {
+      const newCoupon = req.body;
+      const result = await couponsCollection.insertOne(newCoupon);
+
+      res.json(result);
+    });
+
     // Update an existing product
     app.put("/products/:id", async (req, res) => {
       const id = req.params.id;
@@ -586,6 +641,18 @@ async function run() {
         console.error("Error updating user role:", error);
         res.status(500).json({ message: "Failed to update user role." });
       }
+    });
+
+    // Update a coupon
+    app.put("/coupons/:id", async (req, res) => {
+      const { id } = req.params;
+      const updatedData = req.body;
+      const result = await couponsCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: updatedData },
+        { returnDocument: "after" }
+      );
+      res.json(result.value);
     });
 
     // Update product status or make it featured
@@ -659,6 +726,15 @@ async function run() {
           .status(500)
           .json({ success: false, message: "Error deleting product", error });
       }
+    });
+
+    // Delete a coupon
+    app.delete("/coupons/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await couponsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.json(result);
     });
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error.message);
