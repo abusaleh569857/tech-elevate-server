@@ -4,6 +4,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -89,6 +90,7 @@ async function run() {
     // Fetch user by email
     app.get("/users", async (req, res) => {
       const email = req.query.email;
+      console.log(email);
 
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
@@ -596,6 +598,50 @@ async function run() {
       res.json(result);
     });
 
+    // Payment Intent API
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+
+      const price = parseInt(amount * 100);
+
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: price, // Amount in cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    app.post("/validate-coupon", async (req, res) => {
+      const { couponCode } = req.body;
+
+      try {
+        const coupon = await couponsCollection.findOne({ code: couponCode });
+
+        if (!coupon || new Date() > new Date(coupon.expiryDate)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid or expired coupon code",
+          });
+        }
+
+        res.json({
+          success: true,
+          discount: coupon.discount,
+          message: "Coupon is valid",
+        });
+      } catch (error) {
+        res.status(500).json({ success: false, message: "Server error" });
+      }
+    });
+
     // Update an existing product
     app.put("/products/:id", async (req, res) => {
       const id = req.params.id;
@@ -638,7 +684,7 @@ async function run() {
           res.status(404).json({ message: "User not found." });
         }
       } catch (error) {
-        console.error("Error updating user role:", error);
+        // console.error("Error updating user role:", error);
         res.status(500).json({ message: "Failed to update user role." });
       }
     });
@@ -653,6 +699,29 @@ async function run() {
         { returnDocument: "after" }
       );
       res.json(result.value);
+    });
+
+    app.put("/update-subscription", async (req, res) => {
+      const { email, isSubscribed, subscriptionDate } = req.body;
+
+      // console.log("update", email, isSubscribed, subscriptionDate);
+
+      try {
+        const result = await usersCollection.updateOne(
+          { email: email },
+          {
+            $set: {
+              isSubscribed: isSubscribed,
+              subscriptionDate: subscriptionDate,
+            },
+          }
+        );
+
+        res.status(200).send({ success: true, result });
+      } catch (error) {
+        // console.error("Error updating subscription:", error);
+        res.status(500).send({ success: false, error: error.message });
+      }
     });
 
     // Update product status or make it featured
@@ -682,7 +751,7 @@ async function run() {
           .status(200)
           .json({ success: true, message: "Product updated successfully." });
       } catch (error) {
-        console.error("Error updating product:", error.message);
+        // console.error("Error updating product:", error.message);
         res
           .status(500)
           .json({ success: false, message: "Failed to update product." });
