@@ -13,7 +13,12 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: [
+      "http://localhost:5173",
+      "https://tech-elevate-server.vercel.app",
+      "https://tech-elevate.web.app",
+      "https://tech-elevate.firebaseapp.com",
+    ],
     credentials: true,
   })
 );
@@ -32,8 +37,8 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
-    console.log("Connected to MongoDB successfully!");
+    // await client.connect();
+    // console.log("Connected to MongoDB successfully!");
 
     const db = client.db("TechElevate");
     const usersCollection = db.collection("users");
@@ -528,7 +533,7 @@ async function run() {
       }
     });
 
-    // API to Add Product
+    // Add Product (By User)
     app.post("/add-products", async (req, res) => {
       const {
         productName,
@@ -541,26 +546,49 @@ async function run() {
         externalLink,
       } = req.body;
 
-      // Prepare Product Object with default values
-      const newProduct = {
-        productName,
-        productImage,
-        description,
-        ownerName,
-        ownerEmail,
-        ownerImage,
-        tags: tags || [],
-        externalLink,
-
-        upvotes: 0,
-        downvotes: 0,
-        reports: 0,
-        status: "Pending",
-        isFeatured: false,
-        createdAt: new Date(),
-      };
-
       try {
+        // Fetch the user's subscription and existing products
+        const user = await usersCollection.findOne({ email: ownerEmail });
+
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found.",
+          });
+        }
+
+        const userProductsCount = await productsCollection.countDocuments({
+          ownerEmail,
+        });
+
+        // Restrict if user is not subscribed and already has a product
+        if (!user.isSubscribed && userProductsCount >= 1) {
+          return res.status(403).json({
+            success: false,
+            message:
+              "You can only add one product. Subscribe to add more products.",
+          });
+        }
+
+        // Prepare Product Object with default values
+        const newProduct = {
+          productName,
+          productImage,
+          description,
+          ownerName,
+          ownerEmail,
+          ownerImage,
+          tags: tags || [],
+          externalLink,
+
+          upvotes: 0,
+          downvotes: 0,
+          reports: 0,
+          status: "Pending",
+          isFeatured: false,
+          createdAt: new Date(),
+        };
+
         // Insert Product into MongoDB
         const result = await productsCollection.insertOne(newProduct);
 
