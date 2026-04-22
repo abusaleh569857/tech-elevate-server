@@ -451,4 +451,4 @@ Current frontend integration endpoints:
 
 **TechElevate**: Innovating the Future of Technology.
 
-**Developed by Abusaleh Alam Khan (Seen Game Pro Project)**
+**Developed by Abusaleh Alam Khan (🚀 TechElevate - Product Discovery and Role-Based Moderation Platform)**
